@@ -1,0 +1,156 @@
+[
+  {
+    "id": "A01:2021",
+    "name": "Broken Access Control (IDOR)",
+    "description": "Failures in enforcing restrictions on what authenticated users are allowed to do. Includes Direct Object Reference (IDOR), unauthorized URL access, and privilege escalation.",
+    "indicators": ["req.params.id", "findById(id)", "update({ id })", "delete", "/api/admin", "No req.user compare"],
+    "vulnerable_example": "app.get('/api/users/:id', async (req, res) => {\n  // Missing check if req.user.id === req.params.id\n  const doc = await db.users.findById(req.params.id);\n  res.json(doc);\n});"
+  },
+  {
+    "id": "A02:2021",
+    "name": "Cryptographic Failures",
+    "description": "Failures related to cryptography (or lack thereof) which often leads to sensitive data exposure. Hardcoded secrets, weak PRNG, MD5/SHA1 usage.",
+    "indicators": ["Math.random()", "md5(", "sha1(", "secret = '", "password = '", "base64"],
+    "vulnerable_example": "const resetToken = crypto.createHash('md5').update(user.email + Date.now()).digest('hex');"
+  },
+  {
+    "id": "A03:2021",
+    "name": "Injection (SQLi & Command Injection)",
+    "description": "User-supplied data is not validated, filtered, or sanitized by the application before being executed as a query or command.",
+    "indicators": ["exec(", "spawn(", "eval(", "query(`", "raw(", "Runtime.exec"],
+    "vulnerable_example": "db.query(`SELECT * FROM users WHERE email = '${req.body.email}'`);\nexec('ping -c 4 ' + req.query.ip);"
+  },
+  {
+    "id": "A04:2021",
+    "name": "Insecure Design (Logic Flaws & Rate Limiting)",
+    "description": "Business logic flaws or lack of throttling/rate-limiting that permit abuse, such as mass registration or brute force.",
+    "indicators": ["/api/login", "/api/reset", "No rateLimit", "while (true)"],
+    "vulnerable_example": "app.post('/api/login', async (req, res) => {\n  // No brute-force protection\n  const isMatch = await bcrypt.compare(req.body.password, user.password);\n});"
+  },
+  {
+    "id": "A07:2021",
+    "name": "Cross-Site Scripting (XSS)",
+    "description": "Application includes untrusted data in a web page without proper validation or escaping.",
+    "indicators": ["innerHTML", "dangerouslySetInnerHTML", "document.write", "v-html", "res.send(req.query.term)"],
+    "vulnerable_example": "res.send(`<h1>Search results for: ${req.query.term}</h1>`);"
+  },
+  {
+    "id": "A08:2021",
+    "name": "Software and Data Integrity Failures (Insecure Deserialization)",
+    "description": "Making assumptions about software updates, critical data, and CI/CD pipelines without verifying integrity. Deserializing untrusted data.",
+    "indicators": ["JSON.parse(", "unserialize(", "Object.assign(", "yaml.load("],
+    "vulnerable_example": "const userProfile = unserialize(req.cookies.profile);\nObject.assign(targetObj, JSON.parse(req.body.data));"
+  },
+  {
+    "id": "A10:2021",
+    "name": "Server-Side Request Forgery (SSRF)",
+    "description": "The application fetches a remote resource without validating the user-supplied URL. It allows an attacker to coerce the application to send a crafted request to an unexpected destination.",
+    "indicators": ["fetch(req.body.url)", "axios.get(req.query.remote)", "http.get(", "urllib"],
+    "vulnerable_example": "app.post('/webhook/test', async (req, res) => {\n  const response = await fetch(req.body.url);\n  res.send(await response.text());\n});"
+  },
+  {
+    "id": "CWE-22",
+    "name": "Path Traversal / Local File Inclusion (LFI)",
+    "description": "The application uses external input to construct a pathname that should be within a restricted directory, but it does not properly neutralize special elements such as '..'.",
+    "indicators": ["fs.readFile(", "path.join(", "res.sendFile(", "include(", "require(req.query"],
+    "vulnerable_example": "const filepath = path.join(__dirname, 'public', req.query.file);\nres.sendFile(filepath);"
+  },
+  {
+    "id": "CWE-915",
+    "name": "Mass Assignment (Over-posting)",
+    "description": "The application blindly updates database records based on client input, allowing an attacker to modify fields they shouldn't have access to.",
+    "indicators": ["Object.assign(", "model.update(req.body)", "user.save(req.body)", "No permitted parameters"],
+    "vulnerable_example": "const user = await User.findById(req.user.id);\nObject.assign(user, req.body); // Attacker sends { isAdmin: true }\nawait user.save();"
+  },
+  {
+    "id": "SWC-101",
+    "name": "Integer Overflow and Underflow (Smart Contracts)",
+    "description": "Arithmetic operations can reach the maximum or minimum size of the type, causing an overflow/underflow to wrap back around.",
+    "indicators": ["+", "-", "*", "uint8", "uint256", "No SafeMath (if solidity < 0.8.0)"],
+    "vulnerable_example": "mapping (address => uint256) public balanceOf;\nfunction transfer(address _to, uint256 _value) public {\n  require(balanceOf[msg.sender] - _value >= 0); // Underflow bypasses requirement\n  balanceOf[msg.sender] -= _value;\n  balanceOf[_to] += _value;\n}"
+  },
+  {
+    "id": "SWC-105",
+    "name": "Unprotected Ether Withdrawal (Smart Contracts)",
+    "description": "Due to missing or insufficient access controls, malicious parties can withdraw some or all Ether from the contract account.",
+    "indicators": ["transfer", "call{value:", "No onlyOwner modifier", "No require(msg.sender == owner)"],
+    "vulnerable_example": "function withdrawAll(address payable _to) public {\n  // Missing authorization check\n  _to.transfer(address(this).balance);\n}"
+  },
+  {
+    "id": "SWC-107",
+    "name": "Reentrancy (Smart Contracts)",
+    "description": "A smart contract calls an external contract before updating its own state, allowing the external contract to recursively call back into the original function before state changes are applied.",
+    "indicators": ["call.value", ".transfer(", ".send(", "checks-effects-interactions violation"],
+    "vulnerable_example": "function withdraw() public {\n  uint bal = balances[msg.sender];\n  require(bal > 0);\n  (bool sent, ) = msg.sender.call{value: bal}(\"\");\n  require(sent, \"Failed\");\n  balances[msg.sender] = 0; // State updated AFTER interaction\n}"
+  },
+  {
+    "id": "SWC-112",
+    "name": "Delegatecall to Untrusted Callee (Smart Contracts)",
+    "description": "Calling delegatecall to a user-supplied address or an unverified contract allows the callee to execute code in the context of the calling contract, potentially modifying state or destroying the contract.",
+    "indicators": ["delegatecall(", "msg.data", "address(req)"],
+    "vulnerable_example": "function proxyCall(address _contract, bytes memory _data) public {\n  // An attacker can call selfdestruct() on their own contract and kill this one\n  (bool success, ) = _contract.delegatecall(_data);\n  require(success);\n}"
+  },
+  {
+    "id": "SWC-120",
+    "name": "Weak Randomness (Smart Contracts)",
+    "description": "Using block variables (like block.timestamp or blockhash) or other easily manipulated state to generate pseudo-random numbers.",
+    "indicators": ["block.timestamp", "block.difficulty", "blockhash", "now"],
+    "vulnerable_example": "function rollDice() public payable {\n  require(msg.value == 1 ether);\n  uint256 result = uint256(keccak256(abi.encodePacked(block.timestamp, block.difficulty))) % 6 + 1;\n  if (result == 6) msg.sender.transfer(2 ether);\n}"
+  },
+  {
+    "id": "A05:2021",
+    "name": "Security Misconfiguration",
+    "description": "Missing appropriate security hardening, permissive CORS policies, stack traces or sensitive error details exposed in HTTP responses, debug endpoints left active, or application secrets committed to source control.",
+    "indicators": ["cors({ origin: '*' })", "Access-Control-Allow-Origin: *", "err.stack", "res.json(err)", "process.env in response", "/debug", "/admin/env", "NODE_ENV !== 'production'", "x-powered-by"],
+    "vulnerable_example": "app.use(cors({ origin: '*' }));\n\n// Stack trace leaked to client\napp.use((err, req, res, next) => {\n  res.status(500).json({ error: err.message, stack: err.stack });\n});\n\n// Debug route left in production — exposes all env vars including secrets\napp.get('/debug/env', (req, res) => res.json(process.env));"
+  },
+  {
+    "id": "A06:2021",
+    "name": "Vulnerable and Outdated Components",
+    "description": "Using components (libraries, frameworks, packages) with known vulnerabilities, or failing to keep dependencies updated. Includes use of deprecated APIs, end-of-life runtimes, and packages with published CVEs.",
+    "indicators": ["require('", "import from '", "package.json", "dependencies", "devDependencies", "node_modules", "^0.", "~0.", "lodash", "moment", "serializer", "xmldom", "node-fetch@1"],
+    "vulnerable_example": "// package.json using a known-vulnerable version of lodash\n{\n  \"dependencies\": {\n    \"lodash\": \"^4.17.15\",  // CVE-2020-8203: Prototype pollution\n    \"node-fetch\": \"^1.7.3\",  // EOL — multiple SSRF-facilitating issues\n    \"xmldom\": \"0.1.27\"       // CVE-2021-21366: XSS via namespace handling\n  }\n}\n\n// Using a deprecated crypto API\nconst cipher = crypto.createCipher('aes192', password); // Deprecated — no IV"
+  },
+  {
+    "id": "A09:2021",
+    "name": "Security Logging and Monitoring Failures",
+    "description": "Insufficient logging, monitoring, or alerting of security-relevant events such as login failures, access control violations, and input validation failures. Enables attackers to operate undetected.",
+    "indicators": ["catch (err) {}", "catch {}", "console.log", "No audit log", "No access log", "No rate-limit logging", "swallow error", "silent fail"],
+    "vulnerable_example": "// Login endpoint with no logging of failures — brute force is invisible\napp.post('/api/login', async (req, res) => {\n  const user = await User.findOne({ email: req.body.email });\n  if (!user || !await bcrypt.compare(req.body.password, user.password)) {\n    return res.status(401).json({ error: 'Invalid credentials' });\n    // ❌ No log of failed attempt — IP, email, timestamp not recorded\n  }\n  res.json({ token: generateToken(user) });\n});\n\n// Error silently swallowed — security events invisible in production\ntry {\n  await processPayment(req.body);\n} catch (err) {\n  // ❌ Empty catch block — no log, no alert, no audit trail\n}"
+  },
+  {
+    "id": "BFL-001",
+    "name": "Broken Route Parameter Isolation",
+    "description": "The application implicitly trusts that the route parameters match the authorized session scope. An attacker modifies a URL pointing to a sub-resource belonging to another primary resource.",
+    "indicators": ["req.params.tenantId", "req.params.companyId", "findById(req.params.document_id)"],
+    "vulnerable_example": "app.get('/api/tenants/:tenantId/invoices/:invoiceId', async (req, res) => {\n  // Flaw: Fetches invoice purely by invoiceId without verifying it belongs to the tenantId OR the req.user!\n  const invoice = await db.invoices.findById(req.params.invoiceId);\n  res.json(invoice);\n});"
+  },
+  {
+    "id": "BFL-002",
+    "name": "State Machine Bypass / Forced Browsing",
+    "description": "Business logic assumes users will follow a strict multi-step sequence (e.g., Cart -> Checkout -> Pay). An attacker calls the final step directly without fulfilling prerequisites.",
+    "indicators": ["/api/order/complete", "/api/checkout/finalize", "status === 'paid'", "No strict previous-state check"],
+    "vulnerable_example": "app.post('/api/order/:id/ship', async (req, res) => {\n  const order = await db.orders.findById(req.params.id);\n  // Flaw: Assumes only paid orders reach this endpoint; does not verify order.status === 'PAID'\n  order.status = 'SHIPPED';\n  await order.save();\n  res.send('Order dispatched');\n});"
+  },
+  {
+    "id": "BFL-003",
+    "name": "Financial Data Trust (Client-Side Price Calculation)",
+    "description": "The backend accepts crucial financial or quantity metrics directly from the client request instead of deriving them securely from the database server-side.",
+    "indicators": ["req.body.price", "req.body.amount", "req.body.discount", "req.body.total"],
+    "vulnerable_example": "app.post('/api/checkout', async (req, res) => {\n  const { productId, qty, price } = req.body;\n  // Flaw: Accepts 'price' from the client payload instead of doing generic db.products.findById(productId).price\n  const totalCost = qty * price; \n  await chargeUser(req.user.id, totalCost);\n});"
+  },
+  {
+    "id": "BFL-004",
+    "name": "Race Condition (Time-of-Check to Time-of-Use)",
+    "description": "Also known as a TOCTOU flaw. The application checks a condition (e.g., balance > 0) and then performs an action. Under heavy concurrent requests, the action can be performed multiple times before the condition is updated.",
+    "indicators": ["await checkBalance()", "await withdraw()", "No database transaction lock", "No mutex", "No unique constraint"],
+    "vulnerable_example": "app.post('/api/redeem', async (req, res) => {\n  const code = await db.codes.findById(req.body.codeId);\n  if (!code.is_used) {\n    // Flaw: If 5 concurrent identical requests land here before the DB saves, the user gets 5x rewards\n    await grantReward(req.user.id, code.value);\n    code.is_used = true;\n    await code.save();\n  }\n});"
+  },
+  {
+    "id": "BFL-005",
+    "name": "Insecure Direct Object Reference (Cross-Tenant Exposure)",
+    "description": "A complex IDOR where an application accurately checks if a user belongs to a tenant/organization, but fails to ensure the specific queried object actually belongs to that organization.",
+    "indicators": ["req.user.orgId", "No AND clause for orgId", "query without organization_id filter"],
+    "vulnerable_example": "app.post('/api/reports/:reportId/delete', async (req, res) => {\n  if (!req.user.isAdmin) return res.status(403).send();\n  // Flaw: Admin of Org A can pass a reportId from Org B.\n  // The query should be: deleteOne({ _id: req.params.reportId, orgId: req.user.orgId })\n  await db.reports.deleteOne({ _id: req.params.reportId });\n});"
+  }
+]

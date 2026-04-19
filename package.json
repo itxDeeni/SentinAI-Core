@@ -1,0 +1,26 @@
+{
+  "name": "sentinai-core",
+  "version": "1.0.0",
+  "description": "The open-source core AI security engine for SentinAI.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sentinai": "./dist/scan.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^3.0.52",
+    "@ai-sdk/google-vertex": "^2.1.3",
+    "@octokit/rest": "^21.1.1",
+    "ai": "^6.0.134",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.2"
+  }
+}
