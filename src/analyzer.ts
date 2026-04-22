@@ -177,7 +177,9 @@ Respond with ONLY this JSON structure:
   const raw = await callAI(prompt, systemPrompt, 'lite');
   logger('[Architect] ✅ Access control map complete');
   try {
-    return JSON.parse(extractJSON(raw)) as ArchitectReport;
+    const parsed = JSON.parse(extractJSON(raw));
+    if (!parsed) throw new Error('AI returned null or empty response');
+    return parsed as ArchitectReport;
   } catch (err) {
     logger(`[Architect] ⚠️  Failed to parse JSON response — using partial surface from raw output: ${(err as Error).message}`);
     // Return a best-effort report so the pipeline can continue rather than crashing

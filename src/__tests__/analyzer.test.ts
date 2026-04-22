@@ -19,7 +19,7 @@ describe('SentinAI Core: Analyzer Hybrid Routing', () => {
 
     // Mock sequence of responses for Architect, Adversary, and Guardian
     mockGenerateText
-      .mockResolvedValueOnce({ text: JSON.stringify({ routes: [], vulnerability_surface: 'none' }) } as any) // Architect
+      .mockResolvedValueOnce({ text: JSON.stringify({ endpoints: [], auth_middleware: [], vulnerability_surface: 'none', rbac_mapping: 'none' }) } as any) // Architect
       .mockResolvedValueOnce({ text: '[]' } as any); // Adversary (no findings)
 
     const logger = vi.fn();
@@ -44,8 +44,10 @@ describe('SentinAI Core: Analyzer Hybrid Routing', () => {
   it('should handle malformed JSON from Architect gracefully', async () => {
     const mockGenerateText = vi.mocked(ai.generateText);
     
-    // Architect returns garbage
-    mockGenerateText.mockResolvedValueOnce({ text: 'Not JSON at all' } as any);
+    // Architect returns garbage, Adversary returns no findings
+    mockGenerateText
+      .mockResolvedValueOnce({ text: 'Not JSON at all' } as any)
+      .mockResolvedValueOnce({ text: '[]' } as any);
 
     const logger = vi.fn();
     const results = await runOrchestrator('some diff', logger);
