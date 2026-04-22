@@ -41,6 +41,23 @@ const findings = await runOrchestrator(diff, logger);
 console.log(`Detected ${findings.length} vulnerabilities.`);
 ```
 
+## 🌐 Production Configuration (Vertex AI)
+
+When deployed to Google Cloud Platform, SentinAI Core can be configured to use **Vertex AI** instead of the standard Google AI Studio. This provides enterprise-grade privacy and higher rate limits.
+
+### Environment Variables
+
+| Variable | Description |
+| :--- | :--- |
+| `GOOGLE_CLOUD_PROJECT` | Your GCP Project ID. Setting this triggers Vertex AI mode. |
+| `GOOGLE_CLOUD_LOCATION` | (Optional) The region for Vertex AI (e.g., `us-central1`). |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to your service account JSON file (not needed on Cloud Run). |
+
+### Vertex AI Privacy Guarantee
+By using the `@ai-sdk/google-vertex` provider in production, SentinAI ensures that your source code diffs and analysis data are **never** used by Google to train foundation models.
+
+---
+
 ## 🛡️ Responsible AI
 
 - **Confidence Scoring:** Every finding includes a confidence threshold.
