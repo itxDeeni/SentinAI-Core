@@ -8,7 +8,7 @@
     "dist"
   ],
   "bin": {
-    "sentinai": "./dist/scan.js"
+    "sentinai": "dist/scan.js"
   },
   "scripts": {
     "build": "tsc",
