@@ -4,12 +4,16 @@
   "description": "The open-source core AI security engine for SentinAI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "sentinai": "./dist/scan.js"
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.52",
