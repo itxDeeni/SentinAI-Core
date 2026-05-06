@@ -32,13 +32,13 @@ describe('SentinAI Core: Analyzer Hybrid Routing', () => {
 
     // Check Architect call (first call)
     const architectCall = mockGenerateText.mock.calls[0][0] as any;
-    // In dev, lite maps to gemini-1.5-flash-8b
-    expect(architectCall.model.modelId).toContain('8b');
+    // In dev, lite maps to gemini-3.1-flash-lite-preview
+    expect(architectCall.model.modelId).toContain('flash-lite-preview');
 
     // Check Adversary call (second call)
     const adversaryCall = mockGenerateText.mock.calls[1][0] as any;
-    // In dev, pro maps to gemini-1.5-flash
-    expect(adversaryCall.model.modelId).toBe('gemini-1.5-flash');
+    // In dev, pro maps to gemini-3-flash-preview
+    expect(adversaryCall.model.modelId).toBe('gemini-3-flash-preview');
   });
 
   it('should handle malformed JSON from Architect gracefully', async () => {

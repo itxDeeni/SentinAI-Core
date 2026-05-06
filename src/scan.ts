@@ -82,8 +82,20 @@ if (!process.env.GITHUB_TOKEN) {
   console.warn(`${chalk.yellow('⚠️ warning:')} GITHUB_TOKEN is not set in .env. You may hit rate limits or be unable to scan private repos.`);
 }
 
-if (!process.env.GEMINI_API_KEY) {
-  console.error(`${chalk.red('❌ error:')} GEMINI_API_KEY is missing from .env.`);
+// Provider-aware key validation — only check the key required by the active provider
+const activeProvider = (process.env.SENTINAI_PROVIDER || 'gemini').toLowerCase();
+
+const providerKeyChecks: Record<string, { envVar: string; label: string }> = {
+  gemini:     { envVar: 'GEMINI_API_KEY',    label: 'GEMINI_API_KEY' },
+  vertex:     { envVar: 'GOOGLE_CLOUD_PROJECT', label: 'GOOGLE_CLOUD_PROJECT' },
+  openai:     { envVar: 'OPENAI_API_KEY',    label: 'OPENAI_API_KEY' },
+  anthropic:  { envVar: 'ANTHROPIC_API_KEY', label: 'ANTHROPIC_API_KEY' },
+  // ollama is self-hosted — no API key required
+};
+
+const keyCheck = providerKeyChecks[activeProvider];
+if (keyCheck && !process.env[keyCheck.envVar]) {
+  console.error(`${chalk.red('❌ error:')} ${keyCheck.label} is missing from .env (required for SENTINAI_PROVIDER=${activeProvider}).`);
   process.exit(1);
 }
 

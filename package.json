@@ -14,19 +14,26 @@
     "build": "tsc && cp -r src/data dist/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "benchmark": "ts-node src/benchmark.ts",
     "prepublishOnly": "npm run build"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.71",
     "@ai-sdk/google": "^3.0.64",
     "@ai-sdk/google-vertex": "^4.0.112",
+    "@ai-sdk/openai": "^3.0.53",
     "@octokit/rest": "^21.1.1",
     "ai": "^6.0.168",
-    "chalk": "^4.1.2",
-    "dotenv": "^16.4.7"
+    "chalk": "^4.1.2"
   },
   "devDependencies": {
+    "dotenv": "^16.4.7",
+    "ts-node": "^10.9.2",
     "@types/node": "^22.13.14",
     "typescript": "^5.8.2",
-    "vitest": "^3.0.7"
+    "vitest": "^4.1.4"
   }
 }

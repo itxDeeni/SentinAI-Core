@@ -152,5 +152,169 @@
     "description": "A complex IDOR where an application accurately checks if a user belongs to a tenant/organization, but fails to ensure the specific queried object actually belongs to that organization.",
     "indicators": ["req.user.orgId", "No AND clause for orgId", "query without organization_id filter"],
     "vulnerable_example": "app.post('/api/reports/:reportId/delete', async (req, res) => {\n  if (!req.user.isAdmin) return res.status(403).send();\n  // Flaw: Admin of Org A can pass a reportId from Org B.\n  // The query should be: deleteOne({ _id: req.params.reportId, orgId: req.user.orgId })\n  await db.reports.deleteOne({ _id: req.params.reportId });\n});"
+  },
+
+  {
+    "id": "RUST-SOL-001",
+    "name": "Missing Signer Check (Solana)",
+    "description": "The program processes an instruction without verifying that the required account signed the transaction, allowing unauthorized users to execute privileged operations.",
+    "indicators": [".is_signer", "is_signer: false", "require!(", "Signer"],
+    "vulnerable_example": "pub fn update_config(ctx: Context<UpdateConfig>, new_fee: u64) -> Result<()> {\n    // Vulnerability: No check if ctx.accounts.admin is a signer\n    let config = &mut ctx.accounts.config;\n    config.fee = new_fee;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-002",
+    "name": "Missing Ownership Check (Solana)",
+    "description": "The program fails to verify that an account passed to it is owned by the expected program, allowing an attacker to pass a spoofed account containing malicious data.",
+    "indicators": [".owner", "owner ==", "AccountInfo", "next_account_info"],
+    "vulnerable_example": "pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], _data: &[u8]) -> ProgramResult {\n    let account_info_iter = &mut accounts.iter();\n    let vault_account = next_account_info(account_info_iter)?;\n    // Vulnerability: Missing `if vault_account.owner != program_id { return Err(...) }`\n    let mut vault = Vault::try_from_slice(&vault_account.data.borrow())?;\n    vault.unlocked = true;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-003",
+    "name": "Arbitrary CPI — Unverified Program Address (Solana)",
+    "description": "The program invokes an external program using an address supplied by the caller without verifying the address matches the expected program ID, potentially calling a malicious program.",
+    "indicators": ["invoke(", "invoke_signed(", "CpiContext::new(", "token_program"],
+    "vulnerable_example": "pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {\n    let cpi_accounts = Transfer {\n        from: ctx.accounts.vault.to_account_info(),\n        to: ctx.accounts.user.to_account_info(),\n        authority: ctx.accounts.vault_authority.to_account_info(),\n    };\n    // Vulnerability: token_program is caller-supplied and not verified against spl_token::ID\n    let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);\n    token::transfer(cpi_ctx, amount)?;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-004",
+    "name": "Account Type Cosplay — Missing Discriminator Check (Solana)",
+    "description": "The program accepts accounts without validating their 8-byte Anchor discriminator or account type, allowing an attacker to substitute one valid account type for another to corrupt state.",
+    "indicators": ["try_from_slice(", "discriminator", "unpack(", "AccountDeserialize"],
+    "vulnerable_example": "pub fn process_update(accounts: &[AccountInfo]) -> ProgramResult {\n    let account_info_iter = &mut accounts.iter();\n    let target_account = next_account_info(account_info_iter)?;\n    // Vulnerability: Deserializing without validating the 8-byte discriminator prefix\n    let mut data = target_account.data.borrow_mut();\n    let mut admin_state = AdminState::try_from_slice(&data)?;\n    admin_state.is_active = true;\n    admin_state.serialize(&mut *data)?;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-005",
+    "name": "Integer Arithmetic Overflow in Rust/Solana",
+    "description": "Using standard arithmetic operators (+, -, *) on u64/u128 in Solana programs without checked_add/checked_sub/checked_mul, leading to silent wrapping overflow or underflow.",
+    "indicators": ["u64", "u128", "+=", "-=", "*=", "checked_add", "checked_sub", "checked_mul"],
+    "vulnerable_example": "pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {\n    let user_balance = &mut ctx.accounts.user_balance;\n    // Vulnerability: Raw addition without checked_add can silently overflow u64\n    user_balance.amount += amount;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-006",
+    "name": "Insecure PDA Derivation — User-Controlled Seeds (Solana)",
+    "description": "PDAs are derived entirely from user-controlled seeds without a constant domain separator or enforced canonical bump, enabling attackers to spoof PDAs or cause address collisions.",
+    "indicators": ["find_program_address(", "create_program_address(", "seeds =", "bump"],
+    "vulnerable_example": "pub fn create_vault(ctx: Context<CreateVault>, user_seed: [u8; 32]) -> Result<()> {\n    // Vulnerability: PDA derived entirely from attacker-controlled user_seed, no constant prefix\n    let (vault_pda, _bump) = Pubkey::find_program_address(&[&user_seed], ctx.program_id);\n    require!(vault_pda == *ctx.accounts.vault.key, CustomError::InvalidPDA);\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-007",
+    "name": "Unvalidated Account Key (Solana)",
+    "description": "An instruction handler trusts an account's key without comparing it to an expected hard-coded address or a correctly derived PDA, allowing substitution of arbitrary accounts.",
+    "indicators": [".key()", ".key ==", "key()", "expected_key"],
+    "vulnerable_example": "pub fn collect_fees(ctx: Context<CollectFees>) -> Result<()> {\n    let fee_recipient = &ctx.accounts.fee_recipient;\n    let amount = ctx.accounts.vault.lamports();\n    // Vulnerability: No assertion that fee_recipient.key() == HARDCODED_TREASURY_PUBKEY\n    **ctx.accounts.vault.to_account_info().try_borrow_mut_lamports()? -= amount;\n    **fee_recipient.to_account_info().try_borrow_mut_lamports()? += amount;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-008",
+    "name": "Missing Freeze/Mint Authority Check (Solana)",
+    "description": "Token minting or burning operations execute without verifying the caller holds the correct mint or freeze authority, enabling unauthorized token supply manipulation.",
+    "indicators": ["mint_to(", "burn(", "freeze_authority", "mint_authority"],
+    "vulnerable_example": "pub fn admin_mint(ctx: Context<AdminMint>, amount: u64) -> Result<()> {\n    let cpi_accounts = MintTo {\n        mint: ctx.accounts.mint.to_account_info(),\n        to: ctx.accounts.destination.to_account_info(),\n        authority: ctx.accounts.admin.to_account_info(),\n    };\n    let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);\n    // Vulnerability: No check that ctx.accounts.admin is the actual mint_authority on the mint account\n    token::mint_to(cpi_ctx, amount)?;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-009",
+    "name": "Rent Exemption Bypass (Solana)",
+    "description": "Accounts are created without meeting the minimum lamport balance for rent exemption, causing the Solana runtime to garbage-collect them and destroy state.",
+    "indicators": ["Rent::get(", "minimum_balance(", "is_exempt(", "create_account("],
+    "vulnerable_example": "pub fn init_account(ctx: Context<InitAccount>, space: usize) -> Result<()> {\n    let rent = Rent::get()?;\n    // Vulnerability: Allocates fewer lamports than required — account will be collected\n    let allocated_lamports = rent.minimum_balance(space) - 5000;\n    invoke(\n        &system_instruction::create_account(\n            ctx.accounts.payer.key,\n            ctx.accounts.new_account.key,\n            allocated_lamports,\n            space as u64,\n            ctx.program_id,\n        ),\n        &[ctx.accounts.payer.to_account_info(), ctx.accounts.new_account.to_account_info()]\n    )?;\n    Ok(())\n}"
+  },
+  {
+    "id": "RUST-SOL-010",
+    "name": "Unchecked remaining_accounts (Solana/Anchor)",
+    "description": "Iterating over `ctx.remaining_accounts` without validating each account's key, owner, or signer status allows an attacker to inject arbitrary accounts and corrupt program state.",
+    "indicators": ["remaining_accounts", "ctx.remaining_accounts", ".iter()", "next_account_info"],
+    "vulnerable_example": "pub fn process_batch(ctx: Context<ProcessBatch>) -> Result<()> {\n    // Vulnerability: Iterating through untrusted remaining_accounts with no key/owner validation\n    for account_info in ctx.remaining_accounts.iter() {\n        let mut data = account_info.data.borrow_mut();\n        let mut state = BatchState::try_from_slice(&data)?;\n        state.is_processed = true;\n        state.serialize(&mut *data)?;\n    }\n    Ok(())\n}"
+  },
+
+  {
+    "id": "SWC-NEW-001",
+    "name": "tx.origin Authentication (Solidity)",
+    "description": "Using tx.origin instead of msg.sender for authorization allows phishing contracts to call privileged functions on behalf of the legitimate owner, bypassing access controls.",
+    "indicators": ["tx.origin", "require(tx.origin", "== tx.origin"],
+    "vulnerable_example": "function withdrawAll(address payable recipient) public {\n    // Vulnerability: A malicious contract can trick the owner into transacting,\n    // making tx.origin == owner while msg.sender is the attacker's contract\n    require(tx.origin == owner, \"Only owner can withdraw\");\n    recipient.transfer(address(this).balance);\n}"
+  },
+  {
+    "id": "SWC-NEW-002",
+    "name": "Unchecked Low-Level Call Return Value (Solidity)",
+    "description": "The boolean return value of .call() or .send() is not checked, allowing execution to continue silently after a failed external call, potentially causing fund loss or state corruption.",
+    "indicators": [".call{", ".call(", ".send(", "bool success"],
+    "vulnerable_example": "function executePayment(address target, uint256 amount) public {\n    balances[msg.sender] -= amount;\n    // Vulnerability: Return value ignored — if call fails, balance is still deducted\n    target.call{value: amount}(\"\");\n}"
+  },
+  {
+    "id": "SWC-NEW-003",
+    "name": "Floating Pragma (Solidity)",
+    "description": "A floating pragma directive allows the contract to be compiled with any compatible compiler version, including ones that contain known bugs or breaking changes.",
+    "indicators": ["pragma solidity ^", "pragma solidity >", "pragma solidity >="],
+    "vulnerable_example": "// Vulnerability: ^ allows compilation with any 0.8.x version, including buggy releases\npragma solidity ^0.8.0;\n\ncontract Vault {\n    uint256 public totalLocked;\n    mapping(address => uint256) public balances;\n}"
+  },
+  {
+    "id": "SWC-NEW-004",
+    "name": "Uninitialized Storage Pointer (Solidity)",
+    "description": "Local storage variables that are declared but not explicitly initialized default to pointing at storage slot 0, which can silently overwrite the contract's first state variable.",
+    "indicators": ["storage", "struct", "local storage", "storage pointer"],
+    "vulnerable_example": "// Slot 0\naddress public admin;\n\nstruct User { uint256 balance; bool active; }\n\nfunction registerUser() public {\n    // Vulnerability: newUser is an uninitialized storage pointer — points to slot 0\n    // Setting newUser.active overwrites the high bits of the 'admin' address slot\n    User storage newUser;\n    newUser.active = true;\n}"
+  },
+  {
+    "id": "SWC-NEW-005",
+    "name": "Front-Running via Predictable State (Solidity/MEV)",
+    "description": "Contract logic depends on state that is visible in the mempool before inclusion, allowing miners or MEV bots to front-run transactions and steal rewards or game ordering.",
+    "indicators": ["block.number", "block.timestamp", "reward", "puzzleHash", "commit-reveal"],
+    "vulnerable_example": "function solvePuzzle(string memory solution) public {\n    require(keccak256(abi.encodePacked(solution)) == puzzleHash, \"Wrong solution\");\n    require(!solved, \"Already solved\");\n    solved = true;\n    // Vulnerability: Bot sees solution in mempool, copies it with higher gas to front-run\n    payable(msg.sender).transfer(rewardAmount);\n}"
+  },
+  {
+    "id": "SWC-NEW-006",
+    "name": "Signature Replay Attack (Solidity/ECDSA)",
+    "description": "An ECDSA signature is validated without binding it to a nonce, chainId, or contract address, allowing the same signature to be replayed multiple times or across different chains.",
+    "indicators": ["ecrecover(", "keccak256(abi.encodePacked(", "signature", "verify("],
+    "vulnerable_example": "function executeTransfer(address to, uint256 amount, uint8 v, bytes32 r, bytes32 s) public {\n    // Vulnerability: Hash contains no nonce or chainId — signature is infinitely replayable\n    bytes32 msgHash = keccak256(abi.encodePacked(to, amount));\n    address signer = ecrecover(msgHash, v, r, s);\n    require(signer == owner, \"Invalid signature\");\n    payable(to).transfer(amount);\n}"
+  },
+  {
+    "id": "SWC-NEW-007",
+    "name": "Flash Loan Price Oracle Manipulation (Solidity/DeFi)",
+    "description": "A price oracle reads the spot price from a single AMM pool's reserves without using a TWAP, making it trivially manipulable within one transaction using a flash loan.",
+    "indicators": ["getReserves(", "balanceOf(", "IUniswapV2Pair", "reserve0", "reserve1", "spot price"],
+    "vulnerable_example": "function getCollateralValue(address pair, uint256 amount) public view returns (uint256) {\n    // Vulnerability: Spot price from reserves is manipulable via flash loan in same tx\n    (uint112 reserve0, uint112 reserve1, ) = IUniswapV2Pair(pair).getReserves();\n    uint256 price = uint256(reserve1) / uint256(reserve0);\n    return amount * price;\n}"
+  },
+  {
+    "id": "SWC-NEW-008",
+    "name": "tx.origin in ERC20 Approve Path (Solidity Phishing)",
+    "description": "Using tx.origin in an approval or transfer path allows a malicious contract to trick a user into granting token allowances to the attacker, enabling full balance theft.",
+    "indicators": ["tx.origin", "approve(", "allowance[tx.origin]", "transferFrom("],
+    "vulnerable_example": "function approveAndCall(address spender, uint256 amount) public {\n    // Vulnerability: Malicious contract calls this, binding the allowance to tx.origin (victim)\n    // instead of msg.sender (the malicious contract)\n    allowance[tx.origin][spender] = amount;\n    ISpender(spender).receiveApproval(tx.origin, amount, address(this), \"\");\n}"
+  },
+
+  {
+    "id": "MOVE-001",
+    "name": "Missing acquires Annotation / Unauthorized Global Storage Access (Move)",
+    "description": "A function accesses global storage via borrow_global or move_from without properly declaring resource acquisition or verifying caller authorization, bypassing Move's safe access model.",
+    "indicators": ["borrow_global<", "borrow_global_mut<", "move_from<", "acquires"],
+    "vulnerable_example": "module 0x1::example {\n    struct Vault has key { balance: u64 }\n\n    public fun withdraw_unauthorized(account: address, amount: u64) acquires Vault {\n        // Vulnerability: Accesses any account's Vault without checking if caller is authorized\n        let vault = borrow_global_mut<Vault>(account);\n        vault.balance = vault.balance - amount;\n    }\n}"
+  },
+  {
+    "id": "MOVE-002",
+    "name": "Unchecked Signer Privilege Escalation (Move/Aptos)",
+    "description": "A signer reference is forwarded through multiple function call layers without re-validating the signer's address against an expected authority, allowing privilege escalation.",
+    "indicators": ["&signer", "signer::address_of(", "assert!(", "admin_addr"],
+    "vulnerable_example": "module 0x1::admin_panel {\n    use std::signer;\n\n    public fun execute_admin_action(s: &signer) {\n        // Vulnerability: Missing assert!(signer::address_of(s) == @admin_addr, E_NOT_ADMIN)\n        // Any signer can call this and perform the sensitive operation\n        perform_sensitive_operation(s);\n    }\n\n    fun perform_sensitive_operation(_s: &signer) {\n        // drains treasury, updates config, etc.\n    }\n}"
+  },
+  {
+    "id": "MOVE-003",
+    "name": "Phantom Type Misuse — Unconstrained Generic Capability (Move)",
+    "description": "A generic type parameter marked phantom is used to generate capabilities without type constraints, allowing callers to instantiate arbitrary privileged capabilities by supplying any type argument.",
+    "indicators": ["phantom", "Capability", "has key, store", "fun create_cap<"],
+    "vulnerable_example": "module 0x1::token {\n    // Vulnerability: T is phantom and unconstrained — any caller can call create_cap<AttackerType>()\n    // and receive a valid AdminCapability, bypassing intended access controls\n    struct AdminCapability<phantom T> has key, store { can_mint: bool }\n\n    public fun create_cap<T>(): AdminCapability<T> {\n        AdminCapability { can_mint: true }\n    }\n}"
+  },
+  {
+    "id": "MOVE-004",
+    "name": "Resource Not Destroyed — Value Leak or Double-Spend (Move)",
+    "description": "Move resources representing value are created but never explicitly destroyed via a destructuring assignment, causing state bloat, fund lock, or logical double-spend vulnerabilities if the drop ability is incorrectly granted.",
+    "indicators": ["has key", "has store", "Ticket", "Receipt", "drop", "struct.*has key"],
+    "vulnerable_example": "module 0x1::payment {\n    // Vulnerability: If Ticket incorrectly has 'drop', it is silently discarded without redemption\n    // If it lacks 'drop' and the caller forgets to destructure it, the function aborts\n    struct Ticket has key { value: u64 }\n\n    public fun redeem(ticket: Ticket) {\n        // Correct pattern: let Ticket { value } = ticket; then use value\n        // Vulnerable pattern: ticket is consumed but its value is never credited\n        let Ticket { value: _ } = ticket;\n    }\n}"
+  },
+  {
+    "id": "MOVE-005",
+    "name": "Coin::transfer Without WithdrawCapability Check (Move/Aptos)",
+    "description": "Coins are transferred or withdrawn from a vault account using only the vault's signer without verifying the caller holds the correct WithdrawCapability, enabling unauthorized fund extraction.",
+    "indicators": ["coin::transfer<", "coin::withdraw<", "WithdrawCapability", "coin::deposit<"],
+    "vulnerable_example": "module 0x1::vault {\n    use aptos_framework::coin;\n\n    public fun emergency_withdraw<CoinType>(vault_signer: &signer, amount: u64, to: address) {\n        // Vulnerability: Uses vault_signer directly without requiring the caller to present\n        // a WithdrawCapability — any code with a reference to vault_signer can drain funds\n        coin::transfer<CoinType>(vault_signer, to, amount);\n    }\n}"
   }
 ]

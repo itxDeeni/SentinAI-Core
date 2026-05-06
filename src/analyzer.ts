@@ -1,26 +1,121 @@
 import { generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import * as fs from 'fs';
 import * as path from 'path';
 
-function getModel(tier: 'pro' | 'lite' = 'pro') {
-  if (process.env.NODE_ENV === 'production' || process.env.USE_VERTEX === 'true') {
-    const vertex = createVertex({ 
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION || 'europe-west1'
-    });
-    // Use high-performance Flash Lite for the Architect to save costs
-    const modelName = tier === 'lite' ? 'gemini-2.5-flash-lite-001' : 'gemini-2.5-flash-001';
-    return vertex(modelName);
+// ─── Provider Abstraction ─────────────────────────────────────────────────────
+//
+// Set SENTINAI_PROVIDER to one of: gemini (default) | vertex | ollama | openai | anthropic
+//
+// Gemini (default, Google AI Studio):
+//   SENTINAI_PROVIDER=gemini  GEMINI_API_KEY=...
+//
+// NOTE: Ollama uses @ai-sdk/openai pointed at Ollama's OpenAI-compatible /v1 endpoint.
+//       This gives full type-compatibility with the Vercel AI SDK V3 interface.
+// Vertex AI (Google Cloud VPC):
+//   SENTINAI_PROVIDER=vertex  GOOGLE_CLOUD_PROJECT=...  GOOGLE_CLOUD_LOCATION=europe-west1
+//   USE_VERTEX=true also activates this path for backwards compatibility.
+//
+// Ollama (self-hosted / zero-leakage VPC):
+//   SENTINAI_PROVIDER=ollama
+//   OLLAMA_BASE_URL=http://localhost:11434  (optional, defaults shown)
+//   OLLAMA_MODEL_LITE=qwen2.5-coder:7b     (optional)
+//   OLLAMA_MODEL_PRO=qwen2.5-coder:14b    (optional)
+//   OLLAMA_MODEL_ELITE=deepseek-r1:32b    (optional)
+//
+// OpenAI:
+//   SENTINAI_PROVIDER=openai  OPENAI_API_KEY=...
+//   OPENAI_MODEL_LITE=gpt-4o-mini  OPENAI_MODEL_PRO=gpt-4o  OPENAI_MODEL_ELITE=o3
+//
+// Anthropic:
+//   SENTINAI_PROVIDER=anthropic  ANTHROPIC_API_KEY=...
+//   ANTHROPIC_MODEL_LITE=claude-haiku-4-5  ANTHROPIC_MODEL_PRO=claude-sonnet-4-5  ANTHROPIC_MODEL_ELITE=claude-opus-4-5
+
+export type SentinAIProvider = 'gemini' | 'vertex' | 'ollama' | 'openai' | 'anthropic';
+
+/** Returns true when the active provider uses Google's thinkingConfig extension. */
+function isGoogleProvider(provider: SentinAIProvider): boolean {
+  return provider === 'gemini' || provider === 'vertex';
+}
+
+function resolveProvider(): SentinAIProvider {
+  // Legacy env var support
+  if (process.env.USE_VERTEX === 'true') return 'vertex';
+  const raw = (process.env.SENTINAI_PROVIDER || 'gemini').toLowerCase();
+  const valid: SentinAIProvider[] = ['gemini', 'vertex', 'ollama', 'openai', 'anthropic'];
+  if (valid.includes(raw as SentinAIProvider)) return raw as SentinAIProvider;
+  console.warn(`[SentinAI] Unknown SENTINAI_PROVIDER="${raw}" — falling back to gemini`);
+  return 'gemini';
+}
+
+function getModel(tier: 'pro' | 'lite' | 'elite' = 'pro') {
+  const provider = resolveProvider();
+
+  switch (provider) {
+    case 'vertex': {
+      const vertex = createVertex({
+        project: process.env.GOOGLE_CLOUD_PROJECT,
+        location: process.env.GOOGLE_CLOUD_LOCATION || 'europe-west1',
+      });
+      const modelName =
+        tier === 'elite' ? 'gemini-3.1-pro-preview' :
+        tier === 'pro'   ? 'gemini-3-flash-preview' :
+                           'gemini-3.1-flash-lite-preview';
+      return vertex(modelName);
+    }
+
+    case 'ollama': {
+      // Ollama exposes an OpenAI-compatible REST API at <baseURL>/v1.
+      // We reuse @ai-sdk/openai for full Vercel AI SDK V3 type compatibility.
+      const ollama = createOpenAI({
+        apiKey: 'ollama', // Ollama ignores the key, but the SDK requires a non-empty value
+        baseURL: `${(process.env.OLLAMA_BASE_URL || 'http://localhost:11434')}/v1`,
+      });
+      const modelName =
+        tier === 'elite' ? (process.env.OLLAMA_MODEL_ELITE || 'deepseek-r1:32b') :
+        tier === 'pro'   ? (process.env.OLLAMA_MODEL_PRO   || 'qwen2.5-coder:14b') :
+                           (process.env.OLLAMA_MODEL_LITE  || 'qwen2.5-coder:7b');
+      return ollama(modelName);
+    }
+
+    case 'openai': {
+      const openai = createOpenAI({
+        apiKey: process.env.OPENAI_API_KEY || '',
+        baseURL: process.env.OPENAI_BASE_URL, // supports Azure / custom endpoints
+      });
+      const modelName =
+        tier === 'elite' ? (process.env.OPENAI_MODEL_ELITE || 'o3') :
+        tier === 'pro'   ? (process.env.OPENAI_MODEL_PRO   || 'gpt-4o') :
+                           (process.env.OPENAI_MODEL_LITE  || 'gpt-4o-mini');
+      return openai(modelName);
+    }
+
+    case 'anthropic': {
+      const anthropic = createAnthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY || '',
+      });
+      const modelName =
+        tier === 'elite' ? (process.env.ANTHROPIC_MODEL_ELITE || 'claude-opus-4-5') :
+        tier === 'pro'   ? (process.env.ANTHROPIC_MODEL_PRO   || 'claude-sonnet-4-5') :
+                           (process.env.ANTHROPIC_MODEL_LITE  || 'claude-haiku-4-5');
+      return anthropic(modelName);
+    }
+
+    case 'gemini':
+    default: {
+      const google = createGoogleGenerativeAI({
+        apiKey: process.env.GEMINI_API_KEY || '',
+      });
+      const modelName =
+        tier === 'elite' ? 'gemini-3.1-pro-preview' :
+        tier === 'pro'   ? 'gemini-3-flash-preview' :
+                           'gemini-3.1-flash-lite-preview';
+      return google(modelName);
+    }
   }
-  
-  const google = createGoogleGenerativeAI({
-    apiKey: process.env.GEMINI_API_KEY || '',
-  });
-  // Use 8b (Lite) for Architect, full Flash for reasoning tasks
-  const modelName = tier === 'lite' ? 'gemini-1.5-flash-8b' : 'gemini-1.5-flash';
-  return google(modelName);
 }
 
 export interface GuardianReport {
@@ -67,26 +162,86 @@ const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2
 
 // Load and cache patterns once at module initialisation — no need to re-read disk on every request
 function loadPatterns(): string {
-  const patternsPath = path.join(__dirname, 'data', 'patterns.json');
-  const raw = fs.readFileSync(patternsPath, 'utf-8');
-  const patterns = JSON.parse(raw);
-  return patterns
-    .map(
-      (p: { id: string; name: string; description: string; indicators: string[]; vulnerable_example: string }) =>
-        `[${p.id}] ${p.name}\nDescription: ${p.description}\nIndicators: ${p.indicators.join(', ')}\nVulnerable Example:\n${p.vulnerable_example}`
-    )
-    .join('\n\n---\n\n');
+  try {
+    const patternsPath = path.join(__dirname, 'data', 'patterns.json');
+    const raw = fs.readFileSync(patternsPath, 'utf-8');
+    const patterns = JSON.parse(raw);
+    return patterns
+      .map(
+        (p: { id: string; name: string; description: string; indicators: string[]; vulnerable_example: string }) =>
+          `[${p.id}] ${p.name}\nDescription: ${p.description}\nIndicators: ${p.indicators.join(', ')}\nVulnerable Example:\n${p.vulnerable_example}`
+      )
+      .join('\n\n---\n\n');
+  } catch (err) {
+    console.warn(
+      `[SentinAI] ⚠️  Failed to load patterns.json: ${
+        err instanceof Error ? err.message : String(err)
+      }. Proceeding without pattern library — consider running \`npm run build\` first.`
+    );
+    return '';
+  }
 }
 
 const CACHED_PATTERNS: string = loadPatterns();
 
-async function callAI(prompt: string, systemPrompt: string, tier: 'pro' | 'lite' = 'pro'): Promise<string> {
-  const { text } = await generateText({
-    model: getModel(tier),
-    system: systemPrompt,
-    prompt: prompt,
+// ─── Retry Helper ─────────────────────────────────────────────────────────────
+
+/**
+ * Retries an async function with exponential backoff on failure.
+ * Useful for handling transient model API errors (rate limits, 503s, etc.).
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelayMs = 1000
+): Promise<T> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === retries) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+      console.warn(
+        `[SentinAI] ⚠️  Attempt ${attempt}/${retries} failed — retrying in ${delay}ms... (${
+          err instanceof Error ? err.message : String(err)
+        })`
+      );
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  // TypeScript requires a return/throw here even though the loop always throws on exhaustion
+  throw new Error('[SentinAI] Unreachable: retry loop exhausted without throwing');
+}
+
+async function callAI(
+  prompt: string,
+  systemPrompt: string,
+  tier: 'pro' | 'lite' | 'elite' = 'pro',
+  thinkingLevel: 'minimal' | 'low' | 'medium' | 'high' = 'medium'
+): Promise<string> {
+  const provider = resolveProvider();
+
+  return withRetry(async () => {
+    const { text } = await generateText({
+      model: getModel(tier),
+      system: systemPrompt,
+      prompt: prompt,
+      // temperature 1.0 is optimal for Gemini 3 reasoning models;
+      // non-Google providers use their own defaults so we skip setting it.
+      ...(isGoogleProvider(provider) ? { temperature: 1.0 } : {}),
+      // thinkingConfig is a Google-specific extension — only attach for Gemini / Vertex
+      ...(isGoogleProvider(provider)
+        ? {
+            providerOptions: {
+              google: {
+                thinkingConfig: { thinkingLevel },
+              },
+            },
+          }
+        : {}),
+    });
+    return text;
   });
-  return text;
 }
 
 // ─── JSON Extraction ──────────────────────────────────────────────────────────
@@ -144,7 +299,7 @@ function extractJSON(raw: string): string {
 }
 
 // ─── Agent 1: The Architect ──────────────────────────────────────────────────
-async function runArchitect(diff: string, patterns: string, logger: (msg: string) => void): Promise<ArchitectReport> {
+export async function runArchitect(diff: string, patterns: string, logger: (msg: string) => void): Promise<ArchitectReport> {
   logger('[Architect] 🏗️  Mapping access control topology and authentication middleware...');
 
   const systemPrompt = `You are a senior application security architect. Your role is to analyze code diffs and map access control. 
@@ -174,7 +329,7 @@ Respond with ONLY this JSON structure:
   "vulnerability_surface": "Precise description of where user input reaches data access/state changes without validation or where reentrancy/injection is possible"
 }`;
 
-  const raw = await callAI(prompt, systemPrompt, 'lite');
+  const raw = await callAI(prompt, systemPrompt, 'lite', 'low');
   logger('[Architect] ✅ Access control map complete');
   try {
     const parsed = JSON.parse(extractJSON(raw));
@@ -193,7 +348,7 @@ Respond with ONLY this JSON structure:
 }
 
 // ─── Agent 2: The Adversary ──────────────────────────────────────────────────
-async function runAdversary(
+export async function runAdversary(
   diff: string,
   architectReport: ArchitectReport,
   patterns: string,
@@ -244,7 +399,7 @@ Each item MUST have this shape:
 
 Return ONLY the JSON array, e.g.: [ {...}, {...} ] or []`;
 
-  const raw = await callAI(prompt, systemPrompt, 'pro');
+  const raw = await callAI(prompt, systemPrompt, 'pro', 'medium');
   const cleanRaw = extractJSON(raw);
 
   if (cleanRaw === 'null') {
@@ -270,7 +425,7 @@ Return ONLY the JSON array, e.g.: [ {...}, {...} ] or []`;
 }
 
 // ─── Agent 3: The Guardian ───────────────────────────────────────────────────
-async function runGuardian(
+export async function runGuardian(
   diff: string,
   adversaryReport: AdversaryReport,
   architectReport: ArchitectReport,
@@ -322,7 +477,7 @@ Respond with ONLY this JSON:
   "suggested_fix": "TypeScript/JS code snippet showing the secure version of the vulnerable code"
 }`;
 
-  const raw = await callAI(prompt, systemPrompt, 'pro');
+  const raw = await callAI(prompt, systemPrompt, 'pro', 'high');
   try {
     const report = JSON.parse(extractJSON(raw)) as GuardianReport;
     
@@ -362,15 +517,28 @@ export async function runOrchestrator(
 ): Promise<GuardianReport[]> {
   logger('[Orchestrator] 🚀 Dispatching multi-agent security pipeline...');
 
-  // ── Diff size guard ──────────────────────────────────────────────────────────
-  let safeDiff = diff;
-  if (diff.length > MAX_DIFF_CHARS) {
+  // ── Diff Filtering & Size Guard ─────────────────────────────────────────────
+  const filterNoiseFromDiff = (rawDiff: string): string => {
+    const chunks = rawDiff.split(/(?=^diff --git )/m);
+    return chunks.filter(chunk => {
+      if (!chunk.startsWith('diff --git')) return true;
+      if (/\.lock\b|package-lock\.json|\.svg\b|\.min\.js\b|pnpm-lock\.yaml/.test(chunk)) {
+        return false;
+      }
+      return true;
+    }).join('');
+  };
+
+  const filteredDiff = filterNoiseFromDiff(diff);
+  let safeDiff = filteredDiff;
+  
+  if (filteredDiff.length > MAX_DIFF_CHARS) {
     logger(
-      `[Orchestrator] ⚠️  Diff is ${diff.length.toLocaleString()} chars — truncating to ${MAX_DIFF_CHARS.toLocaleString()} to stay within context limits. Large PRs may yield incomplete analysis.`
+      `[Orchestrator] ⚠️  Filtered diff is ${filteredDiff.length.toLocaleString()} chars — truncating to ${MAX_DIFF_CHARS.toLocaleString()}.`
     );
     safeDiff =
-      `[TRUNCATED — original diff was ${diff.length.toLocaleString()} chars; showing first ${MAX_DIFF_CHARS.toLocaleString()} chars only]\n\n` +
-      diff.slice(0, MAX_DIFF_CHARS);
+      `[TRUNCATED — original diff was ${filteredDiff.length.toLocaleString()} chars; showing first ${MAX_DIFF_CHARS.toLocaleString()} chars only]\n\n` +
+      filteredDiff.slice(0, MAX_DIFF_CHARS);
   }
 
   const patterns = CACHED_PATTERNS;
@@ -382,15 +550,23 @@ export async function runOrchestrator(
   const adversaryFindings = await runAdversary(safeDiff, architectReport, patterns, logger);
   if (adversaryFindings.length === 0) return [];
 
-  // Step 3: Guardian — validate each finding independently
+  // Step 3: Guardian — validate each finding concurrently
   const confirmedReports: GuardianReport[] = [];
   const minConfidence = parseInt(process.env.MIN_CONFIDENCE || '40', 10);
   
-  for (const finding of adversaryFindings) {
-    const guardianReport = await runGuardian(safeDiff, finding, architectReport, logger);
-    if (guardianReport.confidence_score < minConfidence) {
+  const guardianResults = await Promise.all(
+    adversaryFindings.map(finding => runGuardian(safeDiff, finding, architectReport, logger))
+  );
+
+  for (const guardianReport of guardianResults) {
+    // Advanced Matrix Severity Filtering: 
+    // Demand higher confidence for lower severity bugs to aggressively reduce noise.
+    const isCritical = guardianReport.severity === 'CRITICAL' || guardianReport.severity === 'HIGH';
+    const effectiveThreshold = isCritical ? minConfidence : Math.max(minConfidence, 80);
+
+    if (guardianReport.confidence_score < effectiveThreshold) {
       logger(
-        `[Guardian] ⚠️  Low confidence (${guardianReport.confidence_score}% < ${minConfidence}%) on "${guardianReport.vulnerability}" — suppressing to reduce noise`
+        `[Guardian] ⚠️  Low confidence (${guardianReport.confidence_score}% < ${effectiveThreshold}% required for ${guardianReport.severity}) on "${guardianReport.vulnerability}" — suppressing to reduce noise`
       );
       continue;
     }
