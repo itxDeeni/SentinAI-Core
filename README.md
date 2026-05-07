@@ -15,7 +15,8 @@ SentinAI uses a specialised three-agent pipeline that works with any supported L
 ## 🚀 Key Features
 
 - **Multi-Agent Reasoning:** Context-aware security analysis that goes beyond pattern matching.
-- **Lethal Patterns:** Specialised in Business Logic Flaws (BFL), OWASP Top 10, and Smart Contract vulnerabilities (Solana/Rust, EVM/Solidity, Aptos+Sui/Move).
+- **Lethal Patterns:** Specialised in Business Logic Flaws (BFL), OWASP Top 10, and 45 high-fidelity Smart Contract vulnerability signatures (Solana/Rust, EVM/Solidity, Aptos+Sui/Move).
+- **Traction:** 236 organic npm downloads within 2 weeks of publishing — zero marketing.
 - **Provider-Agnostic:** Swap AI backends with a single environment variable — no code changes required.
 - **Zero-Leakage Mode:** Run entirely inside your own VPC with a self-hosted Ollama instance. Your source code never leaves your infrastructure.
 - **Elite Tiered Routing:** Lightweight models handle fast diff mapping; heavy models handle exploit reasoning and final validation.

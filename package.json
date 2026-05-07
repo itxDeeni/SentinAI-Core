@@ -1,6 +1,6 @@
 {
   "name": "sentinai-core",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "The open-source core AI security engine for SentinAI.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
